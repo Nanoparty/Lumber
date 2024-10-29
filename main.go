@@ -144,7 +144,8 @@ func enableCORS(next http.Handler) http.Handler {
 }
 
 func main() {
-	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+
+	http.Handle("/users", enableCORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			getUsers(w, r)
@@ -153,9 +154,8 @@ func main() {
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
-
-	http.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/user", enableCORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			getUser(w, r)
@@ -166,8 +166,32 @@ func main() {
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-	})
+	})))
+
+	// http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+	// 	switch r.Method {
+	// 	case http.MethodGet:
+	// 		getUsers(w, r)
+	// 	case http.MethodPost:
+	// 		createUser(w, r)
+	// 	default:
+	// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// 	}
+	// })
+
+	// http.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
+	// 	switch r.Method {
+	// 	case http.MethodGet:
+	// 		getUser(w, r)
+	// 	case http.MethodPut:
+	// 		updateUser(w, r)
+	// 	case http.MethodDelete:
+	// 		deleteUser(w, r)
+	// 	default:
+	// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// 	}
+	// })
 
 	fmt.Println("Server started at :8080")
-	log.Fatal(http.ListenAndServe(":8080", enableCORS(mux)))
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
