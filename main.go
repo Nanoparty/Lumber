@@ -7,6 +7,12 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"context"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+    "go.mongodb.org/mongo-driver/mongo"
+    "go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type User struct {
@@ -19,6 +25,7 @@ var (
 	users   = []User{}
 	nextID  = 1
 	mu      sync.Mutex
+	client  *mongo.Client
 )
 
 // Get all users
@@ -53,7 +60,7 @@ func getUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // Create a new user
-func createUser(w http.ResponseWriter, r *http.Request) {
+func createUser(w http.ResponseWriter, r *http.Request, client *mongo.Client, ctx context.Context) {
 	var user User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
@@ -65,11 +72,23 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 
 	user.ID = nextID
 	nextID++
+
+	collection := client.Database("UsersDB").Collection("Users") 
+    _, err := collection.InsertOne(context.TODO(), user)
+
+    if err != nil {
+		fmt.Println("Failed to create user: ", user)
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+	}
+
 	users = append(users, user)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(user)
+
+	fmt.Println("Successfully created user: ", user)
 }
 
 // Update an existing user by ID
@@ -103,24 +122,39 @@ func updateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete a user by ID
-func deleteUser(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+func deleteUser(w http.ResponseWriter, r *http.Request, client *mongo.Client, ctx context.Context) {
+	var user User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
+
+	id := user.ID
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	for i, user := range users {
-		if user.ID == id {
-			users = append(users[:i], users[i+1:]...)
-			w.WriteHeader(http.StatusNoContent)
-			return
+	collection := client.Database("UsersDB").Collection("Users")
+
+    filter := bson.M{"id": id}
+
+    result, err := collection.DeleteOne(ctx, filter)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    if result.DeletedCount > 0 {
+        fmt.Println("User deleted successfully with ID: ", id)
+		for i, user := range users {
+			if user.ID == id {
+				users = append(users[:i], users[i+1:]...)
+			}
 		}
-	}
+		w.WriteHeader(http.StatusNoContent)
+		return
+    } else {
+        fmt.Println("No User found with the given ID:", id)
+    }
 
 	http.Error(w, "User not found", http.StatusNotFound)
 }
@@ -145,12 +179,63 @@ func enableCORS(next http.Handler) http.Handler {
 
 func main() {
 
+	// Set up context with a timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+    defer cancel()
+
+	// Connect to MongoDB
+    clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
+    client, err := mongo.Connect(ctx, clientOptions)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer func() {
+        if err = client.Disconnect(ctx); err != nil {
+            log.Fatal(err)
+        }
+    }()
+
+	// Check the connection
+    err = client.Ping(ctx, nil)
+    if err != nil {
+        log.Fatal("Could not connect to MongoDB:", err)
+    }
+    fmt.Println("Connected to MongoDB!")
+
+	// Access the database and collection
+    database := client.Database("UsersDB")
+    collection := database.Collection("Users")
+
+    // Find all documents in the collection
+    cursor, err := collection.Find(ctx, bson.D{})
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer cursor.Close(ctx)
+
+    // Iterate through the cursor and print each document
+    for cursor.Next(ctx) {
+        var user User
+        err := cursor.Decode(&user)
+        if err != nil {
+            log.Fatal(err)
+        }
+        fmt.Println(user)
+		users = append(users, user)
+    }
+
+    if err := cursor.Err(); err != nil {
+        log.Fatal(err)
+    }
+
+	fmt.Println("USERS: ", users)
+
 	http.Handle("/users", enableCORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			getUsers(w, r)
 		case http.MethodPost:
-			createUser(w, r)
+			createUser(w, r, client, ctx)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -162,35 +247,11 @@ func main() {
 		case http.MethodPut:
 			updateUser(w, r)
 		case http.MethodDelete:
-			deleteUser(w, r)
+			deleteUser(w, r, client, ctx)
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})))
-
-	// http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
-	// 	switch r.Method {
-	// 	case http.MethodGet:
-	// 		getUsers(w, r)
-	// 	case http.MethodPost:
-	// 		createUser(w, r)
-	// 	default:
-	// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	// 	}
-	// })
-
-	// http.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
-	// 	switch r.Method {
-	// 	case http.MethodGet:
-	// 		getUser(w, r)
-	// 	case http.MethodPut:
-	// 		updateUser(w, r)
-	// 	case http.MethodDelete:
-	// 		deleteUser(w, r)
-	// 	default:
-	// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	// 	}
-	// })
 
 	fmt.Println("Server started at :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
