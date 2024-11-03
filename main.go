@@ -22,11 +22,14 @@ type User struct {
 }
 
 var (
-	users   = []User{}
-	nextID  = 1
-	mu      sync.Mutex
-	client  *mongo.Client
+	users      = []User{}
+	nextID     = 1
+	mu         sync.Mutex
+	client     *mongo.Client
+	db         = "dbo"
+	usrCol     = "users"
 )
+
 
 // Get all users
 func getUsers(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +76,7 @@ func createUser(w http.ResponseWriter, r *http.Request, client *mongo.Client, ct
 	user.ID = nextID
 	nextID++
 
-	collection := client.Database("UsersDB").Collection("Users") 
+	collection := client.Database(db).Collection(usrCol) 
     _, err := collection.InsertOne(context.TODO(), user)
 
     if err != nil {
@@ -134,7 +137,7 @@ func deleteUser(w http.ResponseWriter, r *http.Request, client *mongo.Client, ct
 	mu.Lock()
 	defer mu.Unlock()
 
-	collection := client.Database("UsersDB").Collection("Users")
+	collection := client.Database(db).Collection(usrCol)
 
     filter := bson.M{"id": id}
 
@@ -203,8 +206,8 @@ func main() {
     fmt.Println("Connected to MongoDB!")
 
 	// Access the database and collection
-    database := client.Database("UsersDB")
-    collection := database.Collection("Users")
+    database := client.Database(db)
+    collection := database.Collection(usrCol)
 
     // Find all documents in the collection
     cursor, err := collection.Find(ctx, bson.D{})
