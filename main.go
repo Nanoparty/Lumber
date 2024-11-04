@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"sync"
 	"context"
-	"time"
+	//"time"
 
 	"go.mongodb.org/mongo-driver/bson"
     "go.mongodb.org/mongo-driver/mongo"
@@ -182,21 +182,11 @@ func enableCORS(next http.Handler) http.Handler {
 
 func main() {
 
-	// Set up context with a timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
-    defer cancel()
-
-	// Connect to MongoDB
-    clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
-    client, err := mongo.Connect(ctx, clientOptions)
+	ctx := context.Background() // Base context that won't expire
+    client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
     if err != nil {
-        log.Fatal(err)
+        log.Fatalf("Failed to connect to MongoDB: %v", err)
     }
-    defer func() {
-        if err = client.Disconnect(ctx); err != nil {
-            log.Fatal(err)
-        }
-    }()
 
 	// Check the connection
     err = client.Ping(ctx, nil)
